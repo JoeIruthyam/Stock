@@ -1,0 +1,1350 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=0.7">
+    <title>AI Stock Tracker with Manual Refresh (Indian Stocks)</title>
+    <style>
+        body { margin: 0; font-family: Arial, sans-serif; }
+        .container { position: relative; padding: 20px; }
+        .input-section { margin: 20px 0; }
+        label { margin-right: 10px; }
+        input, select { width: 80px; text-align: center; }
+        button { padding: 5px; margin: 2px; }
+        .positive { color: green; }
+        .negative { color: red; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        
+        .fixed-top { position: sticky; top: 0; background: white; z-index: 10; padding-bottom: 10px; }
+        .table-wrapper { max-height: 60vh; overflow-y: auto; margin-top: 60px; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+        th { background-color: #f2f2f2; position: sticky; top: 0; z-index: 5; }
+        th button { font-size: 12px; padding: 2px 5px; margin-left: 5px; }
+        .ticker-btn { 
+            cursor: pointer; 
+            color: black; 
+            text-decoration: none; 
+            padding: 2px 6px; 
+            border: 1px solid #ccc; 
+            border-radius: 3px; 
+            background-color: #f9f9f9; 
+        }
+        .ticker-btn:hover { background-color: #e0e0e0; }
+        
+        .stats-container { 
+            position: absolute; 
+            top: 10px; 
+            right: 10px; 
+            z-index: 15; 
+        }
+        .stat-box, .clock-box { 
+            border: 2px solid #ccc; 
+            padding: 8px; 
+            margin-bottom: 5px; 
+            background: #f9f9f9; 
+            text-align: center; 
+            width: 180px; 
+            border-radius: 5px; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1); 
+        }
+        .stat-box h4, .clock-box h4 { margin: 0 0 5px; font-size: 14px; color: #333; }
+        .stat-box span, .clock-box span { font-size: 14px; font-weight: bold; display: block; }
+        .day-change { font-weight: bold; }
+        tr:hover { background-color: #f5f5f5; }
+        .highlight-additional-cost { font-weight: bold; background-color: #cce5ff; }
+        small { color: #666; margin-left: 5px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="fixed-top">
+            <h2>AI Stock Tracker with Manual Refresh (Indian Stocks)</h2>
+            <div class="input-section">
+                <h3>Add Owned Stock</h3>
+                <label>Stock Ticker: </label><input type="text" id="newTicker"><small> (e.g., RELIANCE:NSE or INFY:BSE)</small>
+                <label>Buy Price (₹): </label><input type="number" id="newBuyPrice" step="0.01">
+                <label>Quantity: </label><input type="number" id="newQuantity" step="0.00001">
+                <button onclick="addNewStock()">Add Owned Stock</button>
+            </div>
+            <div class="input-section">
+                <h3>Track Stock</h3>
+                <label>Select Ticker: </label>
+                <select id="stockTicker">
+                    <option value="" selected="selected">Select Ticker</option>
+                </select>
+                <button onclick="addStockToTable()">Add to Table</button>
+                <button id="refreshAllBtn" onclick="updateAllPrices()">Refresh Prices</button>
+                <button id="autoRefreshBtn" onclick="toggleAutoRefresh()">Enable Auto-Refresh (5 min)</button>
+                <button onclick="openDashboard()">Open Dashboard</button>
+                <button onclick="openSavedRecords()">View Speculation Table</button>
+            </div>
+            <div class="input-section">
+                <h3>Data Management</h3>
+                <button onclick="exportData()">Export Data</button>
+                <button onclick="importData()">Import Data</button>
+            </div>
+            <div class="stats-container">
+                <div class="stat-box" id="totalInvestmentBox"><h4>Total Investment</h4><span>₹0.00</span></div>
+                <div class="stat-box" id="totalCurrentValueBox"><h4>Total Current Value</h4><span>₹0.00</span></div>
+                <div class="stat-box" id="totalPLBox"><h4>Total P&L</h4><span>₹0.00</span></div>
+                <div class="stat-box" id="totalPLPercentBox"><h4>P&L %</h4><span>0.00%</span></div>
+                <div class="clock-box" id="istClockBox"><h4>Indian Standard Time</h4><span id="istClock">Loading...</span></div>
+                <div class="clock-box" id="marketCloseBox"><h4>Time to Market Close</h4><span id="marketClose" class="negative">Market Closed</span></div>
+            </div>
+        </div>
+        <div class="table-wrapper">
+            <table id="stockTable">
+                <thead>
+                    <tr>
+                        <th>Stock Ticker<button onclick="sortTable('ticker')">▲▼</button></th>
+                        <th>Quantity</th>
+                        <th>Buy Price (₹)</th>
+                        <th>Current Price (₹)</th>
+                        <th>Total Cost (₹)<button onclick="sortTable('totalCost')">▲▼</button></th>
+                        <th>Market Value (₹)<button onclick="sortTable('marketValue')">▲▼</button></th>
+                        <th>P&L (₹)<button onclick="sortTable('pl')">▲▼</button></th>
+                        <th>P&L (%)<button onclick="sortTable('plPercent')">▲▼</button></th>
+                        <th>Day's Change %<button onclick="sortTable('dayChange')">▲▼</button></th>
+                        <th>Sell to Book Profit</th>
+                        <th>Sell to Protect Capital</th>
+                        <th>Buy to Avg (-4% Loss)</th>
+                        <th>Additional Cost (₹)<button onclick="sortTable('additionalCost')">▲▼</button></th>
+                        <th>Suggested Sell-Off</th>
+                        <th>Plan Qty Sell Off</th>
+                        <th>Plan Qty Buy to AVG</th>
+                        <th>Cost Price Sell-Off (₹)</th>
+                        <th>Profit Value Sell-Off (₹)</th>
+                        <th>Profit Booked (₹)</th>
+                        <th>New Avg Buy Price (₹)</th>
+                        <th>Balance Investment (₹)</th>
+                        <th>Profit Target (20%) (₹)</th>
+                        <th>Stop-Loss (10%) (₹)</th>
+                        <th>Risk Level</th>
+                        <th>Predicted Move (%)</th>
+                        <th>Speculated P&L%</th>
+                        <th>Speculative P&L (₹)</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="stockBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        let ownedStocks = JSON.parse(localStorage.getItem('ownedStocks')) || [];
+        let trackedStocks = JSON.parse(localStorage.getItem('trackedStocks')) || [];
+        let savedRecords = JSON.parse(localStorage.getItem('savedRecords')) || [];
+        const kiteApiKey = 'YOUR_ZERODHA_API_KEY'; // Replace with your Kite Connect API key
+        const kiteApiSecret = 'YOUR_ZERODHA_API_SECRET'; // Replace with your Kite Connect API secret
+        let kiteAccessToken = null; // Will be set after authentication
+        let globalCooldown = false;
+        const tickerCooldowns = new Map();
+        let sortColumn = null;
+        let sortDirection = 'asc';
+        const chartWindows = new Map();
+        let autoRefreshInterval = null;
+        let dashboardWindow = null;
+        let savedRecordsWindow = null;
+        let selectedTicker = null;
+
+        // Authenticate with Zerodha Kite Connect to get access token
+        async function authenticateKite() {
+            try {
+                // Placeholder: Implement OAuth flow for production
+                // Redirect user to: https://kite.trade/connect/login?api_key=your_api_key
+                // After login, get request_token from redirect URL and exchange for access_token
+                // For testing, manually set access_token here or prompt user
+                kiteAccessToken = prompt('Enter your Kite Connect access token:');
+                if (!kiteAccessToken) throw new Error('Access token required');
+                console.log('Kite authenticated:', kiteAccessToken);
+            } catch (error) {
+                console.error('Kite authentication failed:', error);
+                alert('Please authenticate with Zerodha Kite to fetch prices.');
+            }
+        }
+
+        function updateDropdown() {
+            const tickerSelect = document.getElementById('stockTicker');
+            if (!tickerSelect) {
+                console.error('stockTicker select element not found');
+                return;
+            }
+            tickerSelect.innerHTML = '<option value="" selected="selected">Select Ticker</option>' + 
+                ownedStocks.map(stock => `<option value="${stock.ticker}">${stock.ticker}</option>`).join('');
+        }
+
+        function addNewStock() {
+            const ticker = document.getElementById('newTicker').value.toUpperCase().trim();
+            const buyPrice = parseFloat(document.getElementById('newBuyPrice').value) || 0;
+            const quantity = parseFloat(document.getElementById('newQuantity').value) || 0;
+            if (!ticker || ticker === '' || buyPrice <= 0 || quantity <= 0) {
+                alert('Please enter a valid ticker, buy price (greater than 0), and quantity (greater than 0).');
+                return;
+            }
+            const existing = ownedStocks.find(s => s.ticker === ticker);
+            if (existing) {
+                const totalQuantity = existing.quantity + quantity;
+                existing.buyPrice = ((existing.buyPrice * existing.quantity) + (buyPrice * quantity)) / totalQuantity;
+                existing.quantity = totalQuantity;
+            } else {
+                ownedStocks.push({ 
+                    ticker, 
+                    buyPrice, 
+                    quantity, 
+                    currentPrice: buyPrice, 
+                    prevClosingPrice: buyPrice, 
+                    dayChangePercent: 0 
+                });
+            }
+            try {
+                localStorage.setItem('ownedStocks', JSON.stringify(ownedStocks));
+                updateDropdown();
+                document.getElementById('newTicker').value = '';
+                document.getElementById('newBuyPrice').value = '';
+                document.getElementById('newQuantity').value = '';
+                updateCumulativeBoxes();
+                console.log(`Added/Updated stock: ${ticker}, Buy Price: ₹${buyPrice}, Quantity: ${quantity}`);
+            } catch (error) {
+                console.error('Error saving to localStorage:', error);
+                alert('Failed to save stock data. Please try again.');
+            }
+        }
+
+        function addStockToTable() {
+            const ticker = document.getElementById('stockTicker').value;
+            if (!ticker) {
+                alert('Please select a ticker to track.');
+                return;
+            }
+            if (!trackedStocks.find(s => s.ticker === ticker)) {
+                const stock = ownedStocks.find(s => s.ticker === ticker);
+                if (stock) {
+                    trackedStocks.push({ 
+                        ...stock, 
+                        predictedMove: 0, 
+                        suggestedSellOff: 0, 
+                        planQtyBuyToAvg: stock.currentPrice > 0 && stock.currentPrice < stock.buyPrice 
+                            ? Math.round(((stock.quantity * stock.currentPrice) - 0.96 * (stock.quantity * stock.buyPrice)) / (0.96 * stock.currentPrice - stock.currentPrice)) 
+                            : 0 
+                    });
+                    localStorage.setItem('trackedStocks', JSON.stringify(trackedStocks));
+                    renderTable();
+                    fetchLivePrice(ticker);
+                    updateCumulativeBoxes();
+                }
+            }
+        }
+
+        function removeStock(ticker) {
+            trackedStocks = trackedStocks.filter(s => s.ticker !== ticker);
+            ownedStocks = ownedStocks.filter(s => s.ticker !== ticker);
+            localStorage.setItem('ownedStocks', JSON.stringify(ownedStocks));
+            localStorage.setItem('trackedStocks', JSON.stringify(trackedStocks));
+            if (chartWindows.has(ticker)) {
+                chartWindows.get(ticker).close();
+                chartWindows.delete(ticker);
+            }
+            if (selectedTicker === ticker) selectedTicker = null;
+            updateDropdown();
+            renderTable();
+            updateCumulativeBoxes();
+        }
+
+        function updateStock(ticker) {
+            const stock = trackedStocks.find(s => s.ticker === ticker);
+            const newQuantity = prompt(`New Quantity for ${ticker}:`, stock.quantity);
+            const newBuyPrice = prompt(`New Buy Price for ${ticker}:`, stock.buyPrice);
+            if (newQuantity && newBuyPrice) {
+                stock.quantity = parseFloat(newQuantity);
+                stock.buyPrice = parseFloat(newBuyPrice);
+                stock.prevClosingPrice = stock.currentPrice;
+                stock.suggestedSellOff = 0;
+                stock.planQtyBuyToAvg = stock.currentPrice > 0 && stock.currentPrice < stock.buyPrice 
+                    ? Math.round(((stock.quantity * stock.currentPrice) - 0.96 * (stock.quantity * stock.buyPrice)) / (0.96 * stock.currentPrice - stock.currentPrice)) 
+                    : 0;
+                const ownedStock = ownedStocks.find(s => s.ticker === ticker);
+                if (ownedStock) {
+                    ownedStock.quantity = stock.quantity;
+                    ownedStock.buyPrice = stock.buyPrice;
+                    localStorage.setItem('ownedStocks', JSON.stringify(ownedStocks));
+                }
+                localStorage.setItem('trackedStocks', JSON.stringify(trackedStocks));
+                renderTable();
+                updateCumulativeBoxes();
+            }
+        }
+
+        async function fetchLivePrice(ticker) {
+            if (tickerCooldowns.get(ticker) || globalCooldown) return;
+
+            const tableButton = document.querySelector(`#stockTable button[onclick="fetchLivePrice('${ticker}')"]`);
+            if (tableButton) tableButton.disabled = true;
+            if (dashboardWindow && !dashboardWindow.closed) {
+                const dashButton = dashboardWindow.document.getElementById('refreshDashBtn');
+                if (dashButton) dashButton.disabled = true;
+            }
+            tickerCooldowns.set(ticker, true);
+
+            if (!kiteAccessToken) {
+                await authenticateKite();
+                if (!kiteAccessToken) return;
+            }
+
+            try {
+                const response = await fetch(`https://api.kite.trade/quote/market?api_key=${kiteApiKey}&access_token=${kiteAccessToken}&i=${ticker}`, {
+                    headers: { 'X-Kite-Version': '3' }
+                });
+                const data = await response.json();
+                const quote = data.data[ticker];
+                if (quote && quote.last_price) {
+                    const price = parseFloat(quote.last_price);
+                    const prevClose = parseFloat(quote.ohlc.close);
+                    const dayChange = prevClose ? ((price - prevClose) / prevClose * 100) : 0;
+                    const stock = trackedStocks.find(s => s.ticker === ticker);
+                    if (stock && price) {
+                        stock.prevClosingPrice = stock.currentPrice;
+                        stock.currentPrice = price;
+                        stock.dayChangePercent = dayChange;
+                        stock.planQtyBuyToAvg = stock.currentPrice > 0 && stock.currentPrice < stock.buyPrice 
+                            ? Math.round(((stock.quantity * stock.currentPrice) - 0.96 * (stock.quantity * stock.buyPrice)) / (0.96 * stock.currentPrice - stock.currentPrice)) 
+                            : 0;
+                        localStorage.setItem('trackedStocks', JSON.stringify(trackedStocks));
+                        renderTableWithButtonState(ticker, true);
+                        updateCumulativeBoxes();
+                        if (dashboardWindow && !dashboardWindow.closed) updateDashboard();
+                    }
+                } else {
+                    console.error(`Invalid response for ${ticker}:`, data);
+                }
+            } catch (error) {
+                console.error(`Error fetching price for ${ticker}:`, error);
+            }
+
+            setTimeout(() => {
+                tickerCooldowns.delete(ticker);
+                const refreshedTableButton = document.querySelector(`#stockTable button[onclick="fetchLivePrice('${ticker}')"]`);
+                if (refreshedTableButton && !globalCooldown) refreshedTableButton.disabled = false;
+                if (dashboardWindow && !dashboardWindow.closed) {
+                    const refreshedDashButton = dashboardWindow.document.getElementById('refreshDashBtn');
+                    if (refreshedDashButton && !globalCooldown) refreshedDashButton.disabled = false;
+                }
+            }, 12000);
+        }
+
+        async function fetchAllPrices() {
+            if (trackedStocks.length === 0) return;
+
+            if (!kiteAccessToken) {
+                await authenticateKite();
+                if (!kiteAccessToken) return;
+            }
+
+            const symbols = trackedStocks.map(stock => stock.ticker).join(',');
+            try {
+                const response = await fetch(`https://api.kite.trade/quote/market?api_key=${kiteApiKey}&access_token=${kiteAccessToken}&i=${symbols}`, {
+                    headers: { 'X-Kite-Version': '3' }
+                });
+                const data = await response.json();
+                for (const [symbol, quote] of Object.entries(data.data)) {
+                    const stock = trackedStocks.find(s => s.ticker === symbol);
+                    if (stock && quote.last_price) {
+                        stock.prevClosingPrice = stock.currentPrice;
+                        stock.currentPrice = parseFloat(quote.last_price);
+                        const prevClose = parseFloat(quote.ohlc.close);
+                        stock.dayChangePercent = prevClose ? ((stock.currentPrice - prevClose) / prevClose * 100) : 0;
+                        stock.planQtyBuyToAvg = stock.currentPrice > 0 && stock.currentPrice < stock.buyPrice 
+                            ? Math.round(((stock.quantity * stock.currentPrice) - 0.96 * (stock.quantity * stock.buyPrice)) / (0.96 * stock.currentPrice - stock.currentPrice)) 
+                            : 0;
+                    }
+                }
+                localStorage.setItem('trackedStocks', JSON.stringify(trackedStocks));
+                renderTable();
+                updateCumulativeBoxes();
+                if (dashboardWindow && !dashboardWindow.closed) updateDashboard();
+            } catch (error) {
+                console.error('Error fetching prices:', error);
+            }
+        }
+
+        function updateAllPrices() {
+            if (globalCooldown || trackedStocks.length === 0) return;
+
+            toggleAllRefreshButtons(false);
+            globalCooldown = true;
+            fetchAllPrices().then(() => {
+                setTimeout(() => {
+                    globalCooldown = false;
+                    toggleAllRefreshButtons(true);
+                }, 12000);
+            });
+        }
+
+        function toggleAutoRefresh() {
+            const autoRefreshBtn = document.getElementById('autoRefreshBtn');
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+                autoRefreshInterval = null;
+                autoRefreshBtn.textContent = 'Enable Auto-Refresh (5 min)';
+            } else {
+                updateAllPrices();
+                autoRefreshInterval = setInterval(() => {
+                    if (!globalCooldown) updateAllPrices();
+                }, 300000);
+                autoRefreshBtn.textContent = 'Disable Auto-Refresh';
+            }
+        }
+
+        function toggleAllRefreshButtons(enable) {
+            const refreshAllBtn = document.getElementById('refreshAllBtn');
+            const refreshBtns = document.querySelectorAll('#stockTable button[onclick^="fetchLivePrice"]');
+            refreshAllBtn.disabled = !enable;
+            refreshBtns.forEach(btn => {
+                const ticker = btn.getAttribute('onclick').match(/'([^']+)'/)[1];
+                if (enable && !tickerCooldowns.get(ticker)) btn.disabled = false;
+                else btn.disabled = true;
+            });
+            if (dashboardWindow && !dashboardWindow.closed) {
+                const dashButton = dashboardWindow.document.getElementById('refreshDashBtn');
+                if (dashButton) dashButton.disabled = !enable;
+            }
+        }
+
+        function sortTable(column) {
+            if (sortColumn === column) {
+                sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+            } else {
+                sortColumn = column;
+                sortDirection = 'asc';
+            }
+
+            trackedStocks.sort((a, b) => {
+                let valueA, valueB;
+                if (column === 'ticker') {
+                    valueA = a.ticker;
+                    valueB = b.ticker;
+                    return sortDirection === 'asc' ? valueA.localeCompare(valueB) : valueB.localeCompare(valueA);
+                } else if (column === 'totalCost') {
+                    valueA = a.quantity * a.buyPrice;
+                    valueB = b.quantity * b.buyPrice;
+                } else if (column === 'marketValue') {
+                    valueA = a.quantity * a.currentPrice;
+                    valueB = b.quantity * b.currentPrice;
+                } else if (column === 'pl') {
+                    valueA = (a.quantity * a.currentPrice) - (a.quantity * a.buyPrice);
+                    valueB = (b.quantity * b.currentPrice) - (b.quantity * b.buyPrice);
+                } else if (column === 'plPercent') {
+                    valueA = a.buyPrice ? (((a.quantity * a.currentPrice) - (a.quantity * a.buyPrice)) / (a.quantity * a.buyPrice)) * 100 : 0;
+                    valueB = b.buyPrice ? (((b.quantity * b.currentPrice) - (b.quantity * b.buyPrice)) / (b.quantity * b.buyPrice)) * 100 : 0;
+                } else if (column === 'dayChange') {
+                    valueA = a.dayChangePercent || 0;
+                    valueB = b.dayChangePercent || 0;
+                } else if (column === 'additionalCost') {
+                    valueA = a.planQtyBuyToAvg * a.currentPrice;
+                    valueB = b.planQtyBuyToAvg * b.currentPrice;
+                }
+                return sortDirection === 'asc' ? valueA - valueB : valueB - valueA;
+            });
+
+            renderTable();
+        }
+
+        function openTradingViewChart(ticker) {
+            const url = `https://www.tradingview.com/chart/?symbol=${ticker}`;
+            let chartWindow = chartWindows.get(ticker);
+
+            if (chartWindow && !chartWindow.closed) {
+                chartWindow.focus();
+            } else {
+                chartWindow = window.open(url, `chart_${ticker}`, 'toolbar=yes,location=yes,status=yes,menubar=yes,scrollbars=yes,resizable=yes');
+                if (chartWindow) {
+                    chartWindows.set(ticker, chartWindow);
+                    chartWindow.moveTo(0, 0);
+                    chartWindow.resizeTo(screen.width, screen.height);
+                    chartWindow.onunload = () => chartWindows.delete(ticker);
+                }
+            }
+        }
+
+        function updateSuggestedSellOff(ticker) {
+            const stock = trackedStocks.find(s => s.ticker === ticker);
+            const sellOffInput = document.getElementById(`sellOff_${ticker}`);
+            let newSellOff = parseInt(sellOffInput.value) || 0;
+            newSellOff = Math.max(0, Math.min(newSellOff, Math.floor(stock.quantity), 9999));
+            sellOffInput.value = newSellOff;
+            stock.suggestedSellOff = newSellOff;
+            localStorage.setItem('trackedStocks', JSON.stringify(trackedStocks));
+            renderTable();
+            if (dashboardWindow && !dashboardWindow.closed) updateDashboard();
+        }
+
+        function updatePlanQtyBuyToAvg(ticker) {
+            const stock = trackedStocks.find(s => s.ticker === ticker);
+            const buyToAvgInput = document.getElementById(`buyToAvg_${ticker}`);
+            let newBuyToAvg = parseInt(buyToAvgInput.value) || 0;
+            newBuyToAvg = Math.max(0, Math.min(newBuyToAvg, 9999));
+            buyToAvgInput.value = newBuyToAvg;
+            stock.planQtyBuyToAvg = newBuyToAvg;
+            localStorage.setItem('trackedStocks', JSON.stringify(trackedStocks));
+            renderTable();
+            if (dashboardWindow && !dashboardWindow.closed) updateDashboard();
+        }
+
+        function updatePredictedMove(ticker) {
+            const stock = trackedStocks.find(s => s.ticker === ticker);
+            const predictInput = document.getElementById(`predict_${ticker}`);
+            let predictPercent = parseInt(predictInput.value) || 0;
+            predictPercent = Math.max(-99, Math.min(predictPercent, 99));
+            predictInput.value = predictPercent;
+            stock.predictedMove = predictPercent;
+            localStorage.setItem('trackedStocks', JSON.stringify(trackedStocks));
+            renderTable();
+            if (dashboardWindow && !dashboardWindow.closed) updateDashboard();
+        }
+
+        function selectTickerForDashboard(ticker) {
+            selectedTicker = ticker;
+            renderTable();
+        }
+
+        function renderTable() {
+            renderTableWithButtonState(null, false);
+        }
+
+        function renderTableWithButtonState(keepDisabledTicker, keepDisabled) {
+            const tbody = document.getElementById('stockBody');
+            tbody.innerHTML = '';
+            trackedStocks.forEach(stock => {
+                const totalCost = stock.quantity * stock.buyPrice;
+                const marketValue = stock.quantity * stock.currentPrice;
+                const pl = marketValue - totalCost;
+                const plPercent = stock.buyPrice ? (pl / totalCost) * 100 : 0;
+                const sellToBookProfit = stock.currentPrice > 0 && stock.currentPrice > stock.buyPrice ? ((marketValue - totalCost) / stock.currentPrice).toFixed(5) : '0.00000';
+                const sellToProtectCapital = stock.currentPrice > 0 ? (stock.quantity - (totalCost / stock.currentPrice)).toFixed(5) : '0.00000';
+                const buyToAvg = stock.currentPrice > 0 && stock.currentPrice < stock.buyPrice ? Math.round((marketValue - 0.96 * totalCost) / (0.96 * stock.currentPrice - stock.currentPrice)) : 0;
+                const additionalCost = stock.planQtyBuyToAvg * stock.currentPrice;
+
+                const suggestedSellOffStatic = stock.currentPrice > stock.buyPrice && stock.currentPrice > 0 ? Math.round((marketValue - totalCost) / stock.currentPrice) : 0;
+                stock.suggestedSellOff = stock.suggestedSellOff !== undefined ? stock.suggestedSellOff : suggestedSellOffStatic;
+                stock.planQtyBuyToAvg = stock.planQtyBuyToAvg !== undefined ? stock.planQtyBuyToAvg : buyToAvg;
+
+                const planQtySellOff = stock.suggestedSellOff;
+                const planQtyBuyToAvg = stock.planQtyBuyToAvg;
+                const costPriceSellOff = planQtySellOff * stock.buyPrice;
+                const profitValueSellOff = planQtySellOff > 0 ? (planQtySellOff * stock.currentPrice) - costPriceSellOff : 0;
+                const profitBooked = planQtySellOff * stock.currentPrice;
+
+                const newTotalQty = stock.quantity - planQtySellOff + planQtyBuyToAvg;
+                const remainingQty = stock.quantity - planQtySellOff;
+                const newTotalCost = remainingQty > 0 ? (remainingQty * stock.buyPrice + planQtyBuyToAvg * stock.currentPrice) : 0;
+                const newAvgBuyPrice = newTotalQty > 0 ? (newTotalCost / newTotalQty).toFixed(2) : '0.00';
+                const balanceInvestment = newTotalQty * stock.currentPrice;
+
+                const profitTarget = parseFloat(newAvgBuyPrice) * 1.2;
+                const stopLoss = parseFloat(newAvgBuyPrice) * 0.9;
+                const riskLevel = Math.abs((stock.currentPrice - stopLoss) / stopLoss) * 100 > 20 ? 'High' : 'Low';
+                const dayChangePercent = (stock.dayChangePercent || 0).toFixed(2);
+
+                const predictPercent = stock.predictedMove || 0;
+                const speculativePrice = stock.currentPrice * (1 + predictPercent / 100);
+                const newMarketValue = newTotalQty * speculativePrice;
+                const speculatedPL = newMarketValue - newTotalCost;
+                const speculatedPLPercent = newTotalCost ? ((newMarketValue - newTotalCost) / newTotalCost * 100).toFixed(2) : 0;
+
+                const currentPriceClass = stock.currentPrice > stock.buyPrice ? 'positive' : stock.currentPrice < stock.buyPrice ? 'negative' : '';
+                const marketValueClass = marketValue > totalCost ? 'positive' : marketValue < totalCost ? 'negative' : '';
+
+                const isDisabled = (stock.ticker === keepDisabledTicker && keepDisabled) || tickerCooldowns.get(stock.ticker) || globalCooldown;
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>
+                        <input type="radio" name="dashboardTicker" value="${stock.ticker}" ${selectedTicker === stock.ticker ? 'checked' : ''} onchange="selectTickerForDashboard('${stock.ticker}')">
+                        <span class="ticker-btn" onclick="openTradingViewChart('${stock.ticker}')">${stock.ticker}</span>
+                    </td>
+                    <td>${stock.quantity.toFixed(5)}</td>
+                    <td>${stock.buyPrice.toFixed(2)}</td>
+                    <td class="${currentPriceClass}">${stock.currentPrice.toFixed(2)}</td>
+                    <td>${totalCost.toFixed(2)}</td>
+                    <td class="${marketValueClass}">${marketValue.toFixed(2)}</td>
+                    <td class="${pl >= 0 ? 'positive' : 'negative'}">${pl.toFixed(2)}</td>
+                    <td class="${plPercent >= 0 ? 'positive' : 'negative'}">${plPercent.toFixed(2)}%</td>
+                    <td class="day-change ${dayChangePercent >= 0 ? 'positive' : 'negative'}">${dayChangePercent}%</td>
+                    <td>${sellToBookProfit}</td>
+                    <td class="${sellToProtectCapital < 0 ? 'negative' : 'positive'}">${sellToProtectCapital}</td>
+                    <td>${buyToAvg}</td>
+                    <td class="highlight-additional-cost">${additionalCost.toFixed(2)}</td>
+                    <td>${suggestedSellOffStatic}</td>
+                    <td><input type="number" id="sellOff_${stock.ticker}" step="1" min="0" max="${Math.min(Math.floor(stock.quantity), 9999)}" maxlength="4" value="${planQtySellOff}" onchange="updateSuggestedSellOff('${stock.ticker}')"></td>
+                    <td><input type="number" id="buyToAvg_${stock.ticker}" step="1" min="0" max="9999" maxlength="4" value="${planQtyBuyToAvg}" onchange="updatePlanQtyBuyToAvg('${stock.ticker}')"></td>
+                    <td>${costPriceSellOff.toFixed(2)}</td>
+                    <td class="${profitValueSellOff > 0 ? 'positive' : ''}">${profitValueSellOff.toFixed(2)}</td>
+                    <td class="${profitBooked > 0 ? 'positive' : ''}">${profitBooked.toFixed(2)}</td>
+                    <td>${newAvgBuyPrice}</td>
+                    <td>${balanceInvestment.toFixed(2)}</td>
+                    <td>${profitTarget.toFixed(2)}</td>
+                    <td>${stopLoss.toFixed(2)}</td>
+                    <td>${riskLevel}</td>
+                    <td><input type="number" id="predict_${stock.ticker}" step="1" min="-99" max="99" maxlength="2" value="${stock.predictedMove || 0}" onchange="updatePredictedMove('${stock.ticker}')"></td>
+                    <td class="${speculatedPLPercent >= 0 ? 'positive' : 'negative'}">${speculatedPLPercent}%</td>
+                    <td id="specPL_${stock.ticker}" class="${speculatedPL >= 0 ? 'positive' : 'negative'}">${speculatedPL.toFixed(2)}</td>
+                    <td>
+                        <button onclick="fetchLivePrice('${stock.ticker}')" ${isDisabled ? 'disabled' : ''}>Refresh</button>
+                        <button onclick="removeStock('${stock.ticker}')">Remove</button>
+                        <button onclick="updateStock('${stock.ticker}')">Edit</button>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+
+        function updateCumulativeBoxes() {
+            const totalInvestment = trackedStocks.reduce((sum, stock) => sum + (stock.quantity * stock.buyPrice), 0);
+            const totalCurrentValue = trackedStocks.reduce((sum, stock) => sum + (stock.quantity * stock.currentPrice), 0);
+            const totalPL = totalCurrentValue - totalInvestment;
+            const totalPLPercent = totalInvestment ? (totalPL / totalInvestment) * 100 : 0;
+
+            document.querySelector('#totalInvestmentBox span').innerHTML = `₹${totalInvestment.toFixed(2)}`;
+            document.querySelector('#totalCurrentValueBox span').innerHTML = `₹${totalCurrentValue.toFixed(2)}`;
+            document.querySelector('#totalCurrentValueBox span').className = totalCurrentValue > totalInvestment ? 'positive' : totalCurrentValue < totalInvestment ? 'negative' : '';
+            document.querySelector('#totalPLBox span').innerHTML = `₹${totalPL.toFixed(2)}`;
+            document.querySelector('#totalPLBox span').className = totalPL >= 0 ? 'positive' : 'negative';
+            document.querySelector('#totalPLPercentBox span').innerText = `${totalPLPercent.toFixed(2)}%`;
+            document.querySelector('#totalPLPercentBox span').className = totalPLPercent >= 0 ? 'positive' : 'negative';
+        }
+
+        function updateISTClockAndMarket() {
+            const now = new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' });
+            const istTime = new Date(now);
+            document.getElementById('istClock').innerText = istTime.toLocaleString();
+
+            const marketClose = new Date(istTime);
+            marketClose.setHours(15, 30, 0, 0);
+            const marketOpen = new Date(istTime);
+            marketOpen.setHours(9, 15, 0, 0);
+
+            const marketCloseSpan = document.getElementById('marketClose');
+            if (istTime >= marketOpen && istTime < marketClose && istTime.getDay() !== 0 && istTime.getDay() !== 6) {
+                const timeLeft = marketClose - istTime;
+                const hours = Math.floor(timeLeft / (1000 * 60 * 60));
+                const minutes = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
+                marketCloseSpan.innerText = `${hours}h ${minutes}m`;
+                marketCloseSpan.className = '';
+            } else {
+                marketCloseSpan.innerText = 'Market Closed';
+                marketCloseSpan.className = 'negative';
+            }
+        }
+
+        function exportData() {
+            const data = {
+                ownedStocks: JSON.parse(localStorage.getItem('ownedStocks')) || [],
+                trackedStocks: JSON.parse(localStorage.getItem('trackedStocks')) || [],
+                savedRecords: JSON.parse(localStorage.getItem('savedRecords')) || []
+            };
+            const jsonString = JSON.stringify(data, null, 2);
+            const blob = new Blob([jsonString], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'indian_stock_tracker_data.json';
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function importData() {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.json';
+            input.onchange = (event) => {
+                const file = event.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        try {
+                            const data = JSON.parse(e.target.result);
+                            if (data && data.ownedStocks && data.trackedStocks) {
+                                data.trackedStocks = data.trackedStocks.map(stock => ({
+                                    ...stock,
+                                    predictedMove: stock.predictedMove || 0,
+                                    suggestedSellOff: stock.suggestedSellOff || 0,
+                                    planQtyBuyToAvg: stock.planQtyBuyToAvg !== undefined 
+                                        ? stock.planQtyBuyToAvg 
+                                        : (stock.currentPrice > 0 && stock.currentPrice < stock.buyPrice 
+                                            ? Math.round(((stock.quantity * stock.currentPrice) - 0.96 * (stock.quantity * stock.buyPrice)) / (0.96 * stock.currentPrice - stock.currentPrice)) 
+                                            : 0)
+                                }));
+                                localStorage.setItem('ownedStocks', JSON.stringify(data.ownedStocks));
+                                localStorage.setItem('trackedStocks', JSON.stringify(data.trackedStocks));
+                                if (data.savedRecords) {
+                                    localStorage.setItem('savedRecords', JSON.stringify(data.savedRecords));
+                                    savedRecords = data.savedRecords;
+                                    if (savedRecordsWindow && !savedRecordsWindow.closed) {
+                                        savedRecordsWindow.dispatchEvent(new Event('recordsUpdated'));
+                                    }
+                                }
+                                ownedStocks = JSON.parse(localStorage.getItem('ownedStocks')) || [];
+                                trackedStocks = JSON.parse(localStorage.getItem('trackedStocks')) || [];
+                                updateDropdown();
+                                renderTable();
+                                updateCumulativeBoxes();
+                                if (dashboardWindow && !dashboardWindow.closed) updateDashboard();
+                                alert('Data imported successfully! Open or refresh the Speculation Table to see updated records.');
+                            } else {
+                                throw new Error('Invalid JSON: missing ownedStocks or trackedStocks');
+                            }
+                        } catch (error) {
+                            console.error('Import error:', error);
+                            alert('Error importing data: ' + error.message);
+                        }
+                    };
+                    reader.readAsText(file);
+                }
+            };
+            input.click();
+        }
+
+        function openDashboard() {
+            console.log('openDashboard called');
+            if (dashboardWindow && !dashboardWindow.closed) {
+                console.log('Focusing existing dashboard window');
+                dashboardWindow.focus();
+                return;
+            }
+
+            console.log('Creating new dashboard window');
+            dashboardWindow = window.open('', 'StockDashboard', 'width=800,height=1200,scrollbars=yes,resizable=yes');
+            if (!dashboardWindow) {
+                console.error('Failed to create dashboard window, possibly blocked by popup blocker');
+                alert('Unable to open Dashboard window. Please allow popups for this site.');
+                return;
+            }
+            console.log('Dashboard window created successfully');
+
+            dashboardWindow.document.write(`
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>Stock Speculation Dashboard</title>
+                    <style>
+                        body { font-family: Arial, sans-serif; padding: 20px; }
+                        table { border-collapse: collapse; width: 100%; }
+                        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+                        th { background-color: #f2f2f2; }
+                        .positive { color: green; }
+                        .negative { color: red; }
+                        select, input { padding: 5px; }
+                        button { padding: 5px; margin: 5px; }
+                        button:disabled { opacity: 0.5; cursor: not-allowed; }
+                        .highlight-additional-cost { font-weight: bold; background-color: #cce5ff; }
+                    </style>
+                </head>
+                <body>
+                    <h2>Stock Speculation Dashboard</h2>
+                    <div class="no-print">
+                        <label>Select Ticker: </label>
+                        <select id="dashboardTicker" onchange="window.opener.updateDashboard()">
+                            <option value="">Select Ticker</option>
+                            ${trackedStocks.map(stock => `<option value="${stock.ticker}">${stock.ticker}</option>`).join('')}
+                        </select>
+                        <button id="refreshDashBtn" onclick="window.opener.refreshDashboardTicker()">Refresh Ticker</button>
+                        <button onclick="window.opener.saveDashboardRecord()">Save Record</button>
+                    </div>
+                    <table id="dashboardTable">
+                        <tr><th>Stock Ticker</th><td id="dashTicker">-</td></tr>
+                        <tr><th>Current Market Price (₹)</th><td id="dashCurrentPrice">0.00</td></tr>
+                        <tr><th>Total Cost (₹)</th><td id="dashTotalCost">0.00</td></tr>
+                        <tr><th>Market Value (₹)</th><td id="dashMarketValue">0.00</td></tr>
+                        <tr><th>P&L (₹)</th><td id="dashPL">0.00</td></tr>
+                        <tr><th>P&L (%)</th><td id="dashPLPercent">0.00%</td></tr>
+                        <tr><th>Intrinsic Value</th><td id="dashIntrinsicValue">N/A</td></tr>
+                        <tr><th>Plan Qty Buy to AVG</th><td><input type="number" id="dashPlanQtyBuyToAvg" step="1" min="0" max="9999" value="0" onchange="window.opener.updateDashboardPlanQtyBuyToAvg(this.value)"></td></tr>
+                        <tr><th>Additional Cost (₹)</th><td id="dashAdditionalCost" class="highlight-additional-cost">0.00</td></tr>
+                        <tr><th>Predicted Move (%)</th><td><input type="number" id="dashPredictedMove" step="1" min="-99" max="99" value="0" onchange="window.opener.updateDashboardPredictedMove(this.value)"></td></tr>
+                        <tr><th>Speculated P&L%</th><td id="dashSpeculatedPLPercent">0.00%</td></tr>
+                        <tr><th>Speculated New Investment</th><td id="dashSpeculatedNewInvestment">0.00</td></tr>
+                        <tr><th>Speculated New Value Change</th><td id="dashSpeculatedNewValueChange">0.00</td></tr>
+                        <tr><th>Speculative P&L (₹)</th><td id="dashSpeculativePL">0.00</td></tr>
+                        <tr><th>Profit Target (20%) (₹)</th><td id="dashProfitTarget">0.00</td></tr>
+                        <tr><th>Stop-Loss (10%) (₹)</th><td id="dashStopLoss">0.00</td></tr>
+                        <tr><th>Sell Off To Retain Old Investment</th><td id="dashSellOffRetain">0</td></tr>
+                        <tr><th>Value Of Sell Off</th><td id="dashValueOfSellOff">0.00</td></tr>
+                        <tr><th>P&L Post Sell Off</th><td id="dashPLPostSellOff">0.00</td></tr>
+                        <tr><th>Mitigated Loss For Down Turn</th><td id="dashMitigatedLoss">0.00</td></tr>
+                    </table>
+                </body>
+                </html>
+            `);
+            dashboardWindow.document.close();
+            dashboardWindow.onunload = () => { 
+                console.log('Dashboard window closed');
+                dashboardWindow = null; 
+            };
+            if (selectedTicker) {
+                dashboardWindow.document.getElementById('dashboardTicker').value = selectedTicker;
+            }
+            updateDashboard();
+        }
+
+        function refreshDashboardTicker() {
+            console.log('refreshDashboardTicker called');
+            if (!dashboardWindow || dashboardWindow.closed) {
+                console.log('No dashboard window, cannot refresh');
+                return;
+            }
+            const ticker = dashboardWindow.document.getElementById('dashboardTicker').value;
+            if (!ticker) {
+                console.log('No ticker selected in dashboard');
+                alert('Please select a ticker to refresh.');
+                return;
+            }
+            fetchLivePrice(ticker);
+        }
+
+        async function fetchIntrinsicValue(ticker) {
+            return { value: 'N/A', percent: 'N/A' };
+        }
+
+        async function updateDashboard() {
+            console.log('updateDashboard called');
+            if (!dashboardWindow || dashboardWindow.closed) {
+                console.log('No dashboard window or closed, skipping update');
+                return;
+            }
+
+            console.log('Updating dashboard for ticker:', dashboardWindow.document.getElementById('dashboardTicker').value);
+            const ticker = dashboardWindow.document.getElementById('dashboardTicker').value;
+            const stock = trackedStocks.find(s => s.ticker === ticker);
+            if (!stock) {
+                console.log('No stock selected, resetting dashboard');
+                dashboardWindow.document.getElementById('dashTicker').innerText = '-';
+                dashboardWindow.document.getElementById('dashCurrentPrice').innerText = '0.00';
+                dashboardWindow.document.getElementById('dashTotalCost').innerText = '0.00';
+                dashboardWindow.document.getElementById('dashMarketValue').innerText = '0.00';
+                dashboardWindow.document.getElementById('dashPL').innerText = '0.00';
+                dashboardWindow.document.getElementById('dashPLPercent').innerText = '0.00%';
+                dashboardWindow.document.getElementById('dashIntrinsicValue').innerText = 'N/A';
+                dashboardWindow.document.getElementById('dashPlanQtyBuyToAvg').value = '0';
+                dashboardWindow.document.getElementById('dashAdditionalCost').innerText = '0.00';
+                dashboardWindow.document.getElementById('dashPredictedMove').value = '0';
+                dashboardWindow.document.getElementById('dashSpeculatedPLPercent').innerText = '0.00%';
+                dashboardWindow.document.getElementById('dashSpeculatedNewInvestment').innerText = '0.00';
+                dashboardWindow.document.getElementById('dashSpeculatedNewValueChange').innerText = '0.00';
+                dashboardWindow.document.getElementById('dashSpeculativePL').innerText = '0.00';
+                dashboardWindow.document.getElementById('dashProfitTarget').innerText = '0.00';
+                dashboardWindow.document.getElementById('dashStopLoss').innerText = '0.00';
+                dashboardWindow.document.getElementById('dashSellOffRetain').innerText = '0';
+                dashboardWindow.document.getElementById('dashValueOfSellOff').innerText = '0.00';
+                dashboardWindow.document.getElementById('dashPLPostSellOff').innerText = '0.00';
+                dashboardWindow.document.getElementById('dashMitigatedLoss').innerText = '0.00';
+                return;
+            }
+
+            const totalCost = stock.quantity * stock.buyPrice;
+            const marketValue = stock.quantity * stock.currentPrice;
+            const pl = marketValue - totalCost;
+            const plPercent = stock.buyPrice ? (pl / totalCost) * 100 : 0;
+            const planQtyBuyToAvg = parseInt(dashboardWindow.document.getElementById('dashPlanQtyBuyToAvg').value) || stock.planQtyBuyToAvg || 0;
+            const additionalCost = planQtyBuyToAvg * stock.currentPrice;
+            const newTotalQty = stock.quantity + planQtyBuyToAvg;
+            const newTotalCost = stock.quantity * stock.buyPrice + planQtyBuyToAvg * stock.currentPrice;
+            const newAvgBuyPrice = newTotalQty > 0 ? (newTotalCost / newTotalQty) : 0;
+            const predictPercent = parseInt(dashboardWindow.document.getElementById('dashPredictedMove').value) || stock.predictedMove || 0;
+            const speculativePrice = stock.currentPrice * (1 + predictPercent / 100);
+            const newMarketValue = newTotalQty * speculativePrice;
+            const speculatedPL = newMarketValue - newTotalCost;
+            const speculatedPLPercent = newTotalCost ? ((newMarketValue - newTotalCost) / newTotalCost * 100) : 0;
+            const stopLoss = newAvgBuyPrice * 0.9;
+
+            const speculatedNewInvestment = (stock.quantity + planQtyBuyToAvg) * newAvgBuyPrice;
+            const speculatedNewValueChange = ((stock.currentPrice * predictPercent / 100) + stock.currentPrice) * (stock.quantity + planQtyBuyToAvg);
+            const profitTarget = (stock.currentPrice * predictPercent / 100) + stock.currentPrice;
+            const sellOffRetain = profitTarget !== 0 ? (speculatedNewValueChange - totalCost) / profitTarget : 0;
+            const valueOfSellOff = sellOffRetain * profitTarget;
+            const remainingQty = newTotalQty - sellOffRetain;
+            const plPostSellOff = (profitTarget - newAvgBuyPrice) * (newTotalQty - sellOffRetain);
+            const mitigatedLoss = (newAvgBuyPrice - stopLoss) * (stock.quantity + planQtyBuyToAvg);
+
+            const intrinsicValue = await fetchIntrinsicValue(ticker);
+
+            dashboardWindow.document.getElementById('dashTicker').innerText = stock.ticker;
+            dashboardWindow.document.getElementById('dashCurrentPrice').innerText = stock.currentPrice.toFixed(2);
+            dashboardWindow.document.getElementById('dashTotalCost').innerText = totalCost.toFixed(2);
+            dashboardWindow.document.getElementById('dashMarketValue').innerText = marketValue.toFixed(2);
+            dashboardWindow.document.getElementById('dashPL').innerText = pl.toFixed(2);
+            dashboardWindow.document.getElementById('dashPL').className = pl >= 0 ? 'positive' : 'negative';
+            dashboardWindow.document.getElementById('dashPLPercent').innerText = `${plPercent.toFixed(2)}%`;
+            dashboardWindow.document.getElementById('dashPLPercent').className = plPercent >= 0 ? 'positive' : 'negative';
+            dashboardWindow.document.getElementById('dashIntrinsicValue').innerText = intrinsicValue.value === 'N/A' ? 'N/A' : `${intrinsicValue.value.toFixed(2)} (${intrinsicValue.percent})`;
+            dashboardWindow.document.getElementById('dashPlanQtyBuyToAvg').value = planQtyBuyToAvg;
+            dashboardWindow.document.getElementById('dashAdditionalCost').innerText = additionalCost.toFixed(2);
+            dashboardWindow.document.getElementById('dashPredictedMove').value = predictPercent;
+            dashboardWindow.document.getElementById('dashSpeculatedPLPercent').innerText = `${speculatedPLPercent.toFixed(2)}%`;
+            dashboardWindow.document.getElementById('dashSpeculatedPLPercent').className = speculatedPLPercent >= 0 ? 'positive' : 'negative';
+            dashboardWindow.document.getElementById('dashSpeculatedNewInvestment').innerText = speculatedNewInvestment.toFixed(2);
+            dashboardWindow.document.getElementById('dashSpeculatedNewValueChange').innerText = speculatedNewValueChange.toFixed(2);
+            dashboardWindow.document.getElementById('dashSpeculativePL').innerText = speculatedPL.toFixed(2);
+            dashboardWindow.document.getElementById('dashSpeculativePL').className = speculatedPL >= 0 ? 'positive' : 'negative';
+            dashboardWindow.document.getElementById('dashProfitTarget').innerText = profitTarget.toFixed(2);
+            dashboardWindow.document.getElementById('dashStopLoss').innerText = stopLoss.toFixed(2);
+            dashboardWindow.document.getElementById('dashSellOffRetain').innerText = sellOffRetain.toFixed(2);
+            dashboardWindow.document.getElementById('dashValueOfSellOff').innerText = valueOfSellOff.toFixed(2);
+            dashboardWindow.document.getElementById('dashPLPostSellOff').innerText = plPostSellOff.toFixed(2);
+            dashboardWindow.document.getElementById('dashPLPostSellOff').className = plPostSellOff >= 0 ? 'positive' : 'negative';
+            dashboardWindow.document.getElementById('dashMitigatedLoss').innerText = mitigatedLoss.toFixed(2);
+            console.log('Dashboard updated successfully');
+        }
+
+        function updateDashboardPlanQtyBuyToAvg(value) {
+            console.log('updateDashboardPlanQtyBuyToAvg called with value:', value);
+            const ticker = dashboardWindow.document.getElementById('dashboardTicker').value;
+            const stock = trackedStocks.find(s => s.ticker === ticker);
+            if (stock) {
+                stock.planQtyBuyToAvg = parseInt(value) || 0;
+                localStorage.setItem('trackedStocks', JSON.stringify(trackedStocks));
+                renderTable();
+                updateDashboard();
+                console.log('Dashboard plan qty updated for', ticker);
+            }
+        }
+
+        function updateDashboardPredictedMove(value) {
+            console.log('updateDashboardPredictedMove called with value:', value);
+            const ticker = dashboardWindow.document.getElementById('dashboardTicker').value;
+            const stock = trackedStocks.find(s => s.ticker === ticker);
+            if (stock) {
+                stock.predictedMove = parseInt(value) || 0;
+                localStorage.setItem('trackedStocks', JSON.stringify(trackedStocks));
+                renderTable();
+                updateDashboard();
+                console.log('Dashboard predicted move updated for', ticker);
+            }
+        }
+
+        function saveDashboardRecord() {
+            console.log('saveDashboardRecord called');
+            if (!dashboardWindow || dashboardWindow.closed) {
+                console.log('No dashboard window, cannot save record');
+                return;
+            }
+
+            const ticker = dashboardWindow.document.getElementById('dashboardTicker').value;
+            if (!ticker) {
+                alert('Please select a ticker to save the record.');
+                console.log('No ticker selected for saving record');
+                return;
+            }
+
+            const now = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+            const record = {
+                timestamp: now,
+                ticker: dashboardWindow.document.getElementById('dashTicker').innerText,
+                currentPrice: dashboardWindow.document.getElementById('dashCurrentPrice').innerText,
+                totalCost: dashboardWindow.document.getElementById('dashTotalCost').innerText,
+                marketValue: dashboardWindow.document.getElementById('dashMarketValue').innerText,
+                pl: dashboardWindow.document.getElementById('dashPL').innerText,
+                plPercent: dashboardWindow.document.getElementById('dashPLPercent').innerText,
+                intrinsicValue: dashboardWindow.document.getElementById('dashIntrinsicValue').innerText,
+                planQtyBuyToAvg: dashboardWindow.document.getElementById('dashPlanQtyBuyToAvg').value,
+                additionalCost: dashboardWindow.document.getElementById('dashAdditionalCost').innerText,
+                predictedMove: dashboardWindow.document.getElementById('dashPredictedMove').value,
+                speculatedPLPercent: dashboardWindow.document.getElementById('dashSpeculatedPLPercent').innerText,
+                speculatedNewInvestment: dashboardWindow.document.getElementById('dashSpeculatedNewInvestment').innerText,
+                speculatedNewValueChange: dashboardWindow.document.getElementById('dashSpeculatedNewValueChange').innerText,
+                speculativePL: dashboardWindow.document.getElementById('dashSpeculativePL').innerText,
+                profitTarget: dashboardWindow.document.getElementById('dashProfitTarget').innerText,
+                stopLoss: dashboardWindow.document.getElementById('dashStopLoss').innerText,
+                sellOffRetain: dashboardWindow.document.getElementById('dashSellOffRetain').innerText,
+                valueOfSellOff: dashboardWindow.document.getElementById('dashValueOfSellOff').innerText,
+                plPostSellOff: dashboardWindow.document.getElementById('dashPLPostSellOff').innerText,
+                mitigatedLoss: dashboardWindow.document.getElementById('dashMitigatedLoss').innerText
+            };
+
+            savedRecords.push(record);
+            localStorage.setItem('savedRecords', JSON.stringify(savedRecords));
+            if (savedRecordsWindow && !savedRecordsWindow.closed) {
+                savedRecordsWindow.dispatchEvent(new Event('recordsUpdated'));
+            }
+            alert('Record saved successfully!');
+            console.log('Record saved:', record);
+        }
+
+        function openSavedRecords() {
+            console.log('openSavedRecords called, window state:', savedRecordsWindow ? 'exists' : 'null', savedRecordsWindow && savedRecordsWindow.closed ? 'closed' : 'open');
+            if (savedRecordsWindow && !savedRecordsWindow.closed) {
+                console.log('Focusing existing SavedRecords window');
+                savedRecordsWindow.focus();
+                savedRecordsWindow.dispatchEvent(new Event('recordsUpdated'));
+                return;
+            }
+
+            console.log('Attempting to create new SavedRecords window');
+            savedRecordsWindow = window.open('', 'SavedRecords', 'width=4096,height=800,scrollbars=yes,resizable=yes'); 
+            if (!savedRecordsWindow) {
+                console.error('Failed to create SavedRecords window, possibly blocked by popup blocker');
+                alert('Unable to open Saved Records window. Please allow popups for this site and try again.');
+                return;
+            }
+            console.log('SavedRecords window created successfully');
+
+            savedRecordsWindow.document.write(`
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>Saved Dashboard Records</title>
+                    <style>
+                        body { font-family: Arial, sans-serif; padding: 20px; }
+                        table { border-collapse: collapse; width: 100%; }
+                        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+                        th { background-color: #f2f2f2; }
+                        .positive { color: green; }
+                        .negative { color: red; }
+                        button { padding: 5px; margin: 2px; }
+                        .highlight-additional-cost { font-weight: bold; background-color: #cce5ff; }
+                        .total-additional-cost-box {
+                            border: 2px solid #ccc;
+                            padding: 8px;
+                            margin: 10px 0;
+                            background: #f9f9f9;
+                            text-align: center;
+                            width: 200px;
+                            border-radius: 5px;
+                            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                        }
+                        .total-additional-cost-box h4 { margin: 0 0 5px; font-size: 14px; color: #333; }
+                        .total-additional-cost-box span { font-size: 14px; font-weight: bold; }
+                        @media print {
+                            button { display: none; }
+                            .no-print { display: none; }
+                            table { width: 100%; font-size: 10pt; }
+                            th, td { padding: 4px; }
+                            .total-additional-cost-box { width: 150px; margin: 10px 0; }
+                        }
+                    </style>
+                </head>
+                <body>
+                    <h2>Saved Dashboard Records</h2>
+                    <div class="no-print">
+                        <button id="exportBtn">Export Records</button>
+                        <button id="importBtn">Import Records</button>
+                        <button id="printBtn">Print Table</button>
+                    </div>
+                    <div class="total-additional-cost-box">
+                        <h4>Total Additional Cost</h4>
+                        <span id="totalAdditionalCost">₹0.00</span>
+                    </div>
+                    <table id="savedRecordsTable">
+                        <thead>
+                            <tr>
+                                <th>Timestamp</th>
+                                <th>Ticker</th>
+                                <th>Current Market Price (₹)</th>
+                                <th>Total Cost (₹)</th>
+                                <th>Market Value (₹)</th>
+                                <th>P&L (₹)</th>
+                                <th>P&L (%)</th>
+                                <th>Intrinsic Value</th>
+                                <th>Plan Qty Buy to AVG</th>
+                                <th>Additional Cost (₹)</th>
+                                <th>Predicted Move (%)</th>
+                                <th>Speculated P&L%</th>
+                                <th>Speculated New Investment</th>
+                                <th>Speculated New Value Change</th>
+                                <th>Speculative P&L (₹)</th>
+                                <th>Profit Target (20%) (₹)</th>
+                                <th>Stop-Loss (10%) (₹)</th>
+                                <th>Sell Off To Retain</th>
+                                <th>Value Of Sell Off</th>
+                                <th>P&L Post Sell Off</th>
+                                <th>Mitigated Loss</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="savedRecordsBody"></tbody>
+                    </table>
+                </body>
+                </html>
+            `);
+            savedRecordsWindow.document.close();
+            console.log('SavedRecords window document written');
+
+            const script = savedRecordsWindow.document.createElement('script');
+            script.textContent = `
+                function updateTable() {
+                    console.log('updateTable called in popup');
+                    const tbody = document.getElementById('savedRecordsBody');
+                    const totalAdditionalCostSpan = document.getElementById('totalAdditionalCost');
+                    if (!tbody || !totalAdditionalCostSpan) {
+                        console.error('tbody or totalAdditionalCostSpan not found');
+                        return;
+                    }
+                    tbody.innerHTML = '';
+                    let savedRecords = [];
+                    try {
+                        savedRecords = JSON.parse(localStorage.getItem('savedRecords')) || [];
+                        console.log('Loaded records:', savedRecords.length);
+                    } catch (error) {
+                        console.error('Error parsing savedRecords:', error.message);
+                        return;
+                    }
+                    let totalAdditionalCost = 0;
+                    if (!Array.isArray(savedRecords) || savedRecords.length === 0) {
+                        console.log('No records to display');
+                        totalAdditionalCostSpan.innerText = '₹0.00';
+                    } else {
+                        savedRecords.forEach((record, index) => {
+                            try {
+                                console.log('Adding record:', index, 'ticker:', record.ticker);
+                                if (!record || typeof record !== 'object' || !record.ticker) {
+                                    console.warn('Invalid record at index', index, ':', record);
+                                    return;
+                                }
+                                const additionalCost = parseFloat(record.additionalCost) || 0;
+                                totalAdditionalCost += additionalCost;
+                                const row = document.createElement('tr');
+                                row.innerHTML = \`
+                                    <td>\${record.timestamp || 'N/A'}</td>
+                                    <td>\${record.ticker}</td>
+                                    <td>\${record.currentPrice || '0.00'}</td>
+                                    <td>\${record.totalCost || '0.00'}</td>
+                                    <td>\${record.marketValue || '0.00'}</td>
+                                    <td class="\${parseFloat(record.pl) >= 0 ? 'positive' : 'negative'}">\${record.pl || '0.00'}</td>
+                                    <td class="\${parseFloat(record.plPercent) >= 0 ? 'positive' : 'negative'}">\${record.plPercent || '0.00%'}</td>
+                                    <td>\${record.intrinsicValue || 'N/A'}</td>
+                                    <td>\${record.planQtyBuyToAvg || '0'}</td>
+                                    <td class="highlight-additional-cost">\${record.additionalCost || '0.00'}</td>
+                                    <td>\${record.predictedMove || '0'}</td>
+                                    <td class="\${parseFloat(record.speculatedPLPercent) >= 0 ? 'positive' : 'negative'}">\${record.speculatedPLPercent || '0.00%'}</td>
+                                    <td>\${record.speculatedNewInvestment || '0.00'}</td>
+                                    <td>\${record.speculatedNewValueChange || '0.00'}</td>
+                                    <td class="\${parseFloat(record.speculativePL) >= 0 ? 'positive' : 'negative'}">\${record.speculativePL || '0.00'}</td>
+                                    <td>\${record.profitTarget || '0.00'}</td>
+                                    <td>\${record.stopLoss || '0.00'}</td>
+                                    <td>\${record.sellOffRetain || '0'}</td>
+                                    <td>\${record.valueOfSellOff || '0.00'}</td>
+                                    <td class="\${parseFloat(record.plPostSellOff) >= 0 ? 'positive' : 'negative'}">\${record.plPostSellOff || '0.00'}</td>
+                                    <td>\${record.mitigatedLoss || '0.00'}</td>
+                                    <td class="no-print"><button onclick="deleteRecord(\${index})">Delete</button></td>
+                                \`;
+                                tbody.appendChild(row);
+                                console.log('Record', index, 'added');
+                            } catch (error) {
+                                console.error('Error adding record', index, ':', error.message);
+                            }
+                        });
+                        totalAdditionalCostSpan.innerText = '₹' + totalAdditionalCost.toFixed(2);
+                    }
+                    console.log('Table updated with', savedRecords.length, 'records, total additional cost:', totalAdditionalCost);
+                }
+
+                function deleteRecord(index) {
+                    console.log('deleteRecord called in popup for index:', index);
+                    try {
+                        let savedRecords = JSON.parse(localStorage.getItem('savedRecords')) || [];
+                        if (index >= 0 && index < savedRecords.length) {
+                            savedRecords.splice(index, 1);
+                            localStorage.setItem('savedRecords', JSON.stringify(savedRecords));
+                            console.log('Record deleted in popup, remaining:', savedRecords.length);
+                            window.opener.savedRecords = savedRecords;
+                            window.opener.dispatchEvent(new Event('recordsUpdated'));
+                            setTimeout(updateTable, 100);
+                        } else {
+                            console.error('Invalid index:', index, 'length:', savedRecords.length);
+                        }
+                    } catch (error) {
+                        console.error('Error deleting record:', error.message);
+                        alert('Error deleting record: ' + error.message);
+                    }
+                }
+
+                function exportRecords() {
+                    console.log('Exporting from popup...');
+                    let savedRecords = [];
+                    try {
+                        savedRecords = JSON.parse(localStorage.getItem('savedRecords')) || [];
+                        console.log('Records to export:', savedRecords);
+                    } catch (error) {
+                        console.error('Error parsing savedRecords for export:', error.message);
+                        alert('Error exporting records: ' + error.message);
+                        return;
+                    }
+                    const data = { savedRecords };
+                    const jsonString = JSON.stringify(data, null, 2);
+                    const blob = new Blob([jsonString], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'saved_dashboard_records.json';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                    console.log('Export complete');
+                }
+
+                function importRecords() {
+                    console.log('Opening file picker in popup...');
+                    const input = document.createElement('input');
+                    input.type = 'file';
+                    input.accept = '.json';
+                    input.onchange = (event) => {
+                        const file = event.target.files[0];
+                        if (file) {
+                            console.log('File selected:', file.name);
+                            const reader = new FileReader();
+                            reader.onload = (e) => {
+                                try {
+                                    const data = JSON.parse(e.target.result);
+                                    console.log('Parsed data:', data);
+                                    if (data && data.savedRecords) {
+                                        localStorage.setItem('savedRecords', JSON.stringify(data.savedRecords));
+                                        console.log('Records saved to localStorage');
+                                        updateTable();
+                                        window.opener.savedRecords = data.savedRecords;
+                                        window.opener.dispatchEvent(new Event('recordsUpdated'));
+                                        alert('Records imported successfully! Table updated.');
+                                    } else {
+                                        throw new Error('Invalid JSON: missing savedRecords');
+                                    }
+                                } catch (error) {
+                                    console.error('Import error:', error.message);
+                                    alert('Error importing records: ' + error.message);
+                                }
+                            };
+                            reader.readAsText(file);
+                        } else {
+                            console.log('No file selected');
+                        }
+                    };
+                    input.click();
+                }
+
+                function printTable() {
+                    console.log('printTable called');
+                    const table = document.getElementById('savedRecordsTable');
+                    const totalBox = document.getElementById('totalAdditionalCost').parentElement;
+                    if (!table || !totalBox) {
+                        console.error('Table or total box not found for printing');
+                        return;
+                    }
+                    const printWindow = window.open('', '_blank');
+                    if (!printWindow) {
+                        console.error('Failed to open print window');
+                        alert('Unable to open print window. Please allow popups.');
+                        return;
+                    }
+                    printWindow.document.write(\`
+                        <!DOCTYPE html>
+                        <html>
+                        <head>
+                            <title>Print Saved Dashboard Records</title>
+                            <style>
+                                body { font-family: Arial, sans-serif; padding: 20px; }
+                                table { border-collapse: collapse; width: 100%; font-size: 10pt; }
+                                th, td { border: 1px solid #ddd; padding: 4px; text-align: left; }
+                                th { background-color: #f2f2f2; }
+                                .positive { color: green; }
+                                .negative { color: red; }
+                                .highlight-additional-cost { font-weight: bold; background-color: #cce5ff; }
+                                .total-additional-cost-box {
+                                    border: 2px solid #ccc;
+                                    padding: 8px;
+                                    margin: 10px 0;
+                                    background: #f9f9f9;
+                                    text-align: center;
+                                    width: 150px;
+                                    border-radius: 5px;
+                                }
+                                .total-additional-cost-box h4 { margin: 0 0 5px; font-size: 14px; color: #333; }
+                                .total-additional-cost-box span { font-size: 14px; font-weight: bold; }
+                            </style>
+                        </head>
+                        <body>
+                            <h2>Saved Dashboard Records</h2>
+                            <div class="total-additional-cost-box">
+                                <h4>Total Additional Cost</h4>
+                                <span>\${totalBox.querySelector('span').innerText}</span>
+                            </div>
+                            \${table.outerHTML}
+                        </body>
+                        </html>
+                    \`);
+                    printWindow.document.close();
+                    printWindow.focus();
+                    printWindow.print();
+                    printWindow.close();
+                    console.log('Print window opened and closed');
+                }
+
+                document.addEventListener('DOMContentLoaded', () => {
+                    console.log('SavedRecords window DOM loaded');
+                    updateTable();
+                });
+
+                window.addEventListener('recordsUpdated', () => {
+                    console.log('recordsUpdated event received');
+                    updateTable();
+                });
+
+                setInterval(() => {
+                    console.log('Polling for record updates');
+                    updateTable();
+                }, 5000);
+
+                document.getElementById('exportBtn').addEventListener('click', exportRecords);
+                document.getElementById('importBtn').addEventListener('click', importRecords);
+                document.getElementById('printBtn').addEventListener('click', printTable);
+            `;
+            savedRecordsWindow.document.body.appendChild(script);
+            savedRecordsWindow.onunload = () => {
+                console.log('SavedRecords window closed');
+                savedRecordsWindow = null;
+            };
+            savedRecordsWindow.dispatchEvent(new Event('recordsUpdated'));
+            console.log('SavedRecords window fully initialized');
+        }
+
+        function init() {
+            console.log('Initializing Stock Tracker');
+            updateDropdown();
+            renderTable();
+            updateCumulativeBoxes();
+            updateISTClockAndMarket();
+            setInterval(updateISTClockAndMarket, 1000);
+            console.log('Initialization complete');
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('Main page DOM loaded');
+            init();
+        });
+
+        window.addEventListener('recordsUpdated', () => {
+            console.log('Main window received recordsUpdated event');
+            savedRecords = JSON.parse(localStorage.getItem('savedRecords')) || [];
+        });
+
+        window.addEventListener('storage', (event) => {
+            if (event.key === 'trackedStocks' || event.key === 'ownedStocks') {
+                console.log('Storage changed:', event.key);
+                ownedStocks = JSON.parse(localStorage.getItem('ownedStocks')) || [];
+                trackedStocks = JSON.parse(localStorage.getItem('trackedStocks')) || [];
+                updateDropdown();
+                renderTable();
+                updateCumulativeBoxes();
+                if (dashboardWindow && !dashboardWindow.closed) {
+                    updateDashboard();
+                }
+            } else if (event.key === 'savedRecords') {
+                console.log('Saved records updated in storage');
+                savedRecords = JSON.parse(localStorage.getItem('savedRecords')) || [];
+                if (savedRecordsWindow && !savedRecordsWindow.closed) {
+                    savedRecordsWindow.dispatchEvent(new Event('recordsUpdated'));
+                }
+            }
+        });
+
+        console.log('Stock Tracker script loaded');
+    </script>
+</body>
+</html>
